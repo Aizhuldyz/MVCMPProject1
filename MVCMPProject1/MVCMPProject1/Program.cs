@@ -79,6 +79,7 @@ namespace MVCMPProject1
                     }
                     else
                     {
+                        Debugger.Launch();
                         filepath = Path.Combine(outputFolder, recursivePageName);
                     }
                     dom = response.Content.ReadAsStringAsync().Result;
@@ -90,7 +91,7 @@ namespace MVCMPProject1
                     {
                         foreach (var link in dom["a[href]"])
                         {
-                            //Debugger.Launch();
+                            Debugger.Launch();
                             Uri url = new Uri(link.Attributes.GetAttribute("href"), UriKind.RelativeOrAbsolute);
                             if (!url.IsAbsoluteUri)
                             {
@@ -98,20 +99,16 @@ namespace MVCMPProject1
                             }
                             if (IsSameDomain(inputUrl, url) || allowDifferentDomain)
                             {
-                                string pageName;
-                                if (UserInputUrl.IsBaseOf(url))
-                                    pageName = Path.GetFileName(inputUrl.AbsolutePath);
-                                else
-                                {
-                                    continue;
-                                }
+                                string 
+                                    pageName = Path.GetFileName(url.AbsolutePath);
                                 if (pageName.IsNullOrEmpty())
                                     continue;
-
+                                Debugger.Launch();
                                 string outputFolderNew = outputFolder +
                                                          inputUrl.AbsolutePath.Replace("/" + pageName, "");
                                 pageName = pageName.Replace(".html", "").Replace(".htm", "");
                                 pageName = pageName + ".html";
+
                                 await GetContent(url, outputFolderNew, true, depth - 1, isVerbose,
                                         allowDifferentDomain, pageName);
                                 link.Attributes.SetAttribute("href", url.OriginalString.Replace(url.Host, "/"));
