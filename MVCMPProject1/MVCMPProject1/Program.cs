@@ -75,9 +75,12 @@ namespace MVCMPProject1
                         dom = await GetResources(inputUrl, dom, "img", "src", isVerbose, allowDifferentDomain, outputFolder);
                         dom = await GetResources(inputUrl, dom, "link[href]", "href", isVerbose, allowDifferentDomain, outputFolder);
                         dom = await GetResources(inputUrl, dom, "script[src]", "src", isVerbose, allowDifferentDomain, outputFolder);
-                    
-                        
-                        foreach (var link in dom["a[href]"])
+
+                    var fileContent = dom.Render();
+                    //Debugger.Launch();
+                    File.WriteAllText(filepath, fileContent);
+
+                    foreach (var link in dom["a[href]"])
                         {
                             Uri url = new Uri(link.Attributes.GetAttribute("href"), UriKind.RelativeOrAbsolute);
                             if (!url.IsAbsoluteUri)
@@ -87,9 +90,7 @@ namespace MVCMPProject1
                             if(IsSameDomain(inputUrl, url) || allowDifferentDomain)
                                  GetContent(url, outputFolder, isRecursive, depth - 1, isVerbose, allowDifferentDomain);
                         }
-                    var fileContent = dom.Render();
-                    Debugger.Launch();
-                    File.WriteAllText(filepath, fileContent);
+                    
                 }
             }
             
