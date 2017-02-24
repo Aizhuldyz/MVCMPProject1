@@ -8,11 +8,14 @@ using System.Threading.Tasks;
 using CommandLine;
 using CommandLine.Text;
 using CsQuery;
+using CsQuery.ExtensionMethods.Internal;
+using Microsoft.SqlServer.Server;
 
 namespace MVCMPProject1
 {
     class Program
     {
+        private static Uri UserInputUrl;
         static void Main(string[] args)
         {
             Task t = MainAsync(args);
@@ -29,6 +32,7 @@ namespace MVCMPProject1
                 try
                 {
                     inputUrl = new Uri(url);
+                    UserInputUrl = inputUrl;
                 }
                 catch (Exception)
                 {
@@ -53,7 +57,7 @@ namespace MVCMPProject1
 
 
         private static async Task GetContent(Uri inputUrl, string outputFolder, bool isRecursive, int depth, bool isVerbose,
-            bool allowDifferentDomain)
+            bool allowDifferentDomain, string recursivePageName = "")
         {
             if (isRecursive && depth == -1)
             {
@@ -67,32 +71,58 @@ namespace MVCMPProject1
                     Console.WriteLine("Downloading " + inputUrl.OriginalString + "..." + "\n");
                 if (response.StatusCode == HttpStatusCode.OK)
                 {
-                    var inputUrlToArray = inputUrl.OriginalString.TrimEnd('/').Split('/');
-                    var fileName = inputUrlToArray[inputUrlToArray.Length - 1];
-                    var filepath = Path.Combine(outputFolder, fileName);
+                    string filepath;
+                    if (inputUrl.Equals(UserInputUrl))
+                    {
+                        var fileName = "index.html";
+                        filepath = Path.Combine(outputFolder, fileName);
+                    }
+                    else
+                    {
+                        filepath = Path.Combine(outputFolder, recursivePageName);
+                    }
+                    dom = response.Content.ReadAsStringAsync().Result;
+                    dom = await GetResources(inputUrl, dom, "img", "src", isVerbose, allowDifferentDomain, outputFolder);
+                    dom = await GetResources(inputUrl, dom, "link[href]", "href", isVerbose, allowDifferentDomain, outputFolder);
+                    dom = await GetResources(inputUrl, dom, "script[src]", "src", isVerbose, allowDifferentDomain, outputFolder);
 
-                        dom = response.Content.ReadAsStringAsync().Result;
-                        dom = await GetResources(inputUrl, dom, "img", "src", isVerbose, allowDifferentDomain, outputFolder);
-                        dom = await GetResources(inputUrl, dom, "link[href]", "href", isVerbose, allowDifferentDomain, outputFolder);
-                        dom = await GetResources(inputUrl, dom, "script[src]", "src", isVerbose, allowDifferentDomain, outputFolder);
+                    if (isRecursive)
+                    {
+                        foreach (var link in dom["a[href]"])
+                        {
+                            Uri url = new Uri(link.Attributes.GetAttribute("href"), UriKind.RelativeOrAbsolute);
+                            if (!url.IsAbsoluteUri)
+                            {
+                                url = new Uri(inputUrl.OriginalString + "/" + url.OriginalString);
+                            }
+                            if (IsSameDomain(inputUrl, url) || allowDifferentDomain)
+                            {
+                                string pageName;
+                                if (UserInputUrl.IsBaseOf(url))
+                                    pageName = Path.GetFileName(inputUrl.AbsolutePath);
+                                else
+                                {
+                                    continue;
+                                }
+                                if (pageName.IsNullOrEmpty())
+                                    continue;
 
+                                string outputFolderNew = outputFolder +
+                                                         inputUrl.AbsolutePath.Replace("/" + pageName, "");
+                                await GetContent(url, outputFolderNew, true, depth - 1, isVerbose,
+                                        allowDifferentDomain, pageName);
+                                link.Attributes.SetAttribute("href", url.OriginalString.Replace(url.Host, "/"));
+                            }
+                        }
+                    }
                     var fileContent = dom.Render();
+                    //Debugger.Launch();
+                    File.WriteAllText(filepath, string.Empty);
                     bool isDir = (File.GetAttributes(filepath) & FileAttributes.Directory) == FileAttributes.Directory;
                     if (isDir)
                         filepath = Path.Combine(filepath, "index.html");
                     File.WriteAllText(filepath, fileContent);
 
-                    foreach (var link in dom["a[href]"])
-                        {
-                            Uri url = new Uri(link.Attributes.GetAttribute("href"), UriKind.RelativeOrAbsolute);
-                            if (!url.IsAbsoluteUri)
-                            { 
-                                url = new Uri(inputUrl.OriginalString + "/" + url.OriginalString);
-                            }
-                            if(IsSameDomain(inputUrl, url) || allowDifferentDomain)
-                                 await GetContent(url, outputFolder, isRecursive, depth - 1, isVerbose, allowDifferentDomain);
-                        }
-                    
                 }
             }
             
@@ -105,6 +135,7 @@ namespace MVCMPProject1
             {
                 foreach (var element in dom[resource])
                 {
+                    
                     Uri imgUrl = new Uri(element.Attributes.GetAttribute(src), UriKind.RelativeOrAbsolute);
                     //Debugger.Launch();
                     if (!IsAbsoluteUri(imgUrl))
@@ -115,7 +146,8 @@ namespace MVCMPProject1
                     {
                         if (isVerbose)
                             Console.WriteLine("Downloading " + imgUrl + "..." + "\n");
-                        
+
+                        Debugger.Launch();
                         imgUrl = new Uri(imgUrl.ToString().TrimStart('/'), UriKind.RelativeOrAbsolute);
                         if (!imgUrl.IsAbsoluteUri)
                             imgUrl = new Uri("http://" + imgUrl);
@@ -125,6 +157,9 @@ namespace MVCMPProject1
                             var imgFileName = Uri.UnescapeDataString(imgUrl.LocalPath)
                                 .Trim('/')
                                 .Replace("/", "\\");
+                            //if url contains # after host
+                            if (imgFileName.IsNullOrEmpty())
+                                continue;
                             var imgFilePath = Path.Combine(outputFolder, imgFileName);
                             var imgByteFile = await imgResponse.Content.ReadAsByteArrayAsync();
                             var numFolders = imgFilePath.Split('\\').Length;
@@ -140,7 +175,7 @@ namespace MVCMPProject1
                                     fs.WriteByte(t);
                                 }
                             }
-                            element.Attributes.SetAttribute("src", imgFileName.Replace('\\', '/'));
+                            element.Attributes.SetAttribute(resource, imgFileName.Replace('\\', '/'));
                         }
                     }
                 }
@@ -154,8 +189,8 @@ namespace MVCMPProject1
             string domain2;
             try
             {
-                domain1 = url1.GetLeftPart(UriPartial.Authority).Replace("/www.", "/").Replace("http://", "");
-                domain2 = url2.GetLeftPart(UriPartial.Authority).Replace("/www.", "/").Replace("http://", "");
+                domain1 = url1.GetLeftPart(UriPartial.Authority).Replace("/www.", "/").Replace("http://", "").Replace("https://", "");
+                domain2 = url2.GetLeftPart(UriPartial.Authority).Replace("/www.", "/").Replace("http://", "").Replace("https://", "");
             }
             catch
             {
@@ -170,10 +205,6 @@ namespace MVCMPProject1
             return r.IsMatch(url.OriginalString);
         }
 
-        private static bool IsFirstUriBase(Uri url1, Uri url2)
-        {
-            return url1.IsBaseOf(url2);
-        }
     }
 
     
