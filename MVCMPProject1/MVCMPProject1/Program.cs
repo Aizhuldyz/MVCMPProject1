@@ -67,7 +67,7 @@ namespace MVCMPProject1
                     Console.WriteLine("Downloading " + inputUrl.OriginalString + "..." + "\n");
                 if (response.StatusCode == HttpStatusCode.OK)
                 {
-                    var inputUrlToArray = inputUrl.OriginalString.Split('/');
+                    var inputUrlToArray = inputUrl.OriginalString.TrimEnd('/').Split('/');
                     var fileName = inputUrlToArray[inputUrlToArray.Length - 1];
                     var filepath = Path.Combine(outputFolder, fileName);
 
@@ -77,7 +77,9 @@ namespace MVCMPProject1
                         dom = await GetResources(inputUrl, dom, "script[src]", "src", isVerbose, allowDifferentDomain, outputFolder);
 
                     var fileContent = dom.Render();
-                    //Debugger.Launch();
+                    bool isDir = (File.GetAttributes(filepath) & FileAttributes.Directory) == FileAttributes.Directory;
+                    if (isDir)
+                        filepath = Path.Combine(filepath, "index.html");
                     File.WriteAllText(filepath, fileContent);
 
                     foreach (var link in dom["a[href]"])
@@ -88,7 +90,7 @@ namespace MVCMPProject1
                                 url = new Uri(inputUrl.OriginalString + "/" + url.OriginalString);
                             }
                             if(IsSameDomain(inputUrl, url) || allowDifferentDomain)
-                                 GetContent(url, outputFolder, isRecursive, depth - 1, isVerbose, allowDifferentDomain);
+                                 await GetContent(url, outputFolder, isRecursive, depth - 1, isVerbose, allowDifferentDomain);
                         }
                     
                 }
@@ -124,7 +126,7 @@ namespace MVCMPProject1
                                 .Trim('/')
                                 .Replace("/", "\\");
                             var imgFilePath = Path.Combine(outputFolder, imgFileName);
-                            var imgByteFile = imgResponse.Content.ReadAsByteArrayAsync().Result;
+                            var imgByteFile = await imgResponse.Content.ReadAsByteArrayAsync();
                             var numFolders = imgFilePath.Split('\\').Length;
                             var imgNameLength = imgFilePath.Split('\\')[numFolders - 1].Length;
                             var directory =
