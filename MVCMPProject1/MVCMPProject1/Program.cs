@@ -61,8 +61,10 @@ namespace MVCMPProject1
             }
             CQ dom;
             using (var client = new HttpClient())
-            {
+            {                
                 HttpResponseMessage response = await client.GetAsync(inputUrl.OriginalString);
+                if (isVerbose)
+                    Console.WriteLine("Downloading " + inputUrl.OriginalString + "..." + "\n");
                 if (response.StatusCode == HttpStatusCode.OK)
                 {
                     var inputUrlToArray = inputUrl.OriginalString.Split('/');
@@ -74,17 +76,20 @@ namespace MVCMPProject1
                         dom = await GetResources(inputUrl, dom, "link[href]", "href", isVerbose, allowDifferentDomain, outputFolder);
                         dom = await GetResources(inputUrl, dom, "script[src]", "src", isVerbose, allowDifferentDomain, outputFolder);
                     
-                        var fileContent = dom.Render();
-                        File.WriteAllText(filepath, fileContent);
+                        
                         foreach (var link in dom["a[href]"])
                         {
                             Uri url = new Uri(link.Attributes.GetAttribute("href"), UriKind.RelativeOrAbsolute);
                             if (!url.IsAbsoluteUri)
-                            {
+                            { 
                                 url = new Uri(inputUrl.OriginalString + "/" + url.OriginalString);
                             }
-                            GetContent(url, outputFolder, isRecursive, depth - 1, isVerbose, allowDifferentDomain);
+                            if(IsSameDomain(inputUrl, url) || allowDifferentDomain)
+                                 GetContent(url, outputFolder, isRecursive, depth - 1, isVerbose, allowDifferentDomain);
                         }
+                    var fileContent = dom.Render();
+                    Debugger.Launch();
+                    File.WriteAllText(filepath, fileContent);
                 }
             }
             
@@ -98,13 +103,20 @@ namespace MVCMPProject1
                 foreach (var element in dom[resource])
                 {
                     Uri imgUrl = new Uri(element.Attributes.GetAttribute(src), UriKind.RelativeOrAbsolute);
-                    if (!imgUrl.IsAbsoluteUri)
+                    //Debugger.Launch();
+                    if (!IsAbsoluteUri(imgUrl))
                     {
                         imgUrl = new Uri(inputUrl.OriginalString + "/" + imgUrl.OriginalString);
                     }
-                    if (IsSameDomain(imgUrl, inputUrl))
+                    if (IsSameDomain(imgUrl, inputUrl) || allowDifferentDomain)
                     {
-                        HttpResponseMessage imgResponse = await client.GetAsync(imgUrl.ToString());
+                        if (isVerbose)
+                            Console.WriteLine("Downloading " + imgUrl + "..." + "\n");
+                        
+                        imgUrl = new Uri(imgUrl.ToString().TrimStart('/'), UriKind.RelativeOrAbsolute);
+                        if (!imgUrl.IsAbsoluteUri)
+                            imgUrl = new Uri("http://" + imgUrl);
+                        HttpResponseMessage imgResponse = await client.GetAsync(imgUrl.OriginalString);
                         if (imgResponse.StatusCode == HttpStatusCode.OK)
                         {
                             var imgFileName = Uri.UnescapeDataString(imgUrl.LocalPath)
@@ -135,14 +147,23 @@ namespace MVCMPProject1
 
         private static bool IsSameDomain(Uri url1, Uri url2)
         {
-            var domain1 = url1.GetLeftPart(UriPartial.Authority).Replace("/www.", "/").Replace("http://", "");
-            var domain2 = url2.GetLeftPart(UriPartial.Authority).Replace("/www.", "/").Replace("http://", "");
+            string domain1;
+            string domain2;
+            try
+            {
+                domain1 = url1.GetLeftPart(UriPartial.Authority).Replace("/www.", "/").Replace("http://", "");
+                domain2 = url2.GetLeftPart(UriPartial.Authority).Replace("/www.", "/").Replace("http://", "");
+            }
+            catch
+            {
+                return false;
+            }
             return domain1.Equals(domain2);
         }
 
         private static bool IsAbsoluteUri(Uri url)
         {
-            var r = new Regex("'^(?:[a-z]+:)?//", RegexOptions.IgnoreCase);
+            var r = new Regex("^(?:[a-z]+:)?//", RegexOptions.IgnoreCase);
             return r.IsMatch(url.OriginalString);
         }
 
@@ -184,7 +205,7 @@ namespace MVCMPProject1
             HelpText="Download external images, css, and js")]
         public bool Page { get; set; }
 
-        [Option('d', "domain", Required = false,
+        [Option('d', "domain", Required = false, DefaultValue = false,
             HelpText = "allow downloading of content from different domains, by default not allowed")]
         public bool Domain { get; set; }
 
