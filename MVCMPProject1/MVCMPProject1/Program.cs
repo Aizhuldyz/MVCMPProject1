@@ -90,6 +90,7 @@ namespace MVCMPProject1
                     {
                         foreach (var link in dom["a[href]"])
                         {
+                            //Debugger.Launch();
                             Uri url = new Uri(link.Attributes.GetAttribute("href"), UriKind.RelativeOrAbsolute);
                             if (!url.IsAbsoluteUri)
                             {
@@ -109,6 +110,8 @@ namespace MVCMPProject1
 
                                 string outputFolderNew = outputFolder +
                                                          inputUrl.AbsolutePath.Replace("/" + pageName, "");
+                                pageName = pageName.Replace(".html", "").Replace(".htm", "");
+                                pageName = pageName + ".html";
                                 await GetContent(url, outputFolderNew, true, depth - 1, isVerbose,
                                         allowDifferentDomain, pageName);
                                 link.Attributes.SetAttribute("href", url.OriginalString.Replace(url.Host, "/"));
@@ -146,8 +149,6 @@ namespace MVCMPProject1
                     {
                         if (isVerbose)
                             Console.WriteLine("Downloading " + imgUrl + "..." + "\n");
-
-                        Debugger.Launch();
                         imgUrl = new Uri(imgUrl.ToString().TrimStart('/'), UriKind.RelativeOrAbsolute);
                         if (!imgUrl.IsAbsoluteUri)
                             imgUrl = new Uri("http://" + imgUrl);
@@ -175,7 +176,7 @@ namespace MVCMPProject1
                                     fs.WriteByte(t);
                                 }
                             }
-                            element.Attributes.SetAttribute(resource, imgFileName.Replace('\\', '/'));
+                            element.Attributes.SetAttribute(src, imgFileName.Replace('\\', '/'));
                         }
                     }
                 }
