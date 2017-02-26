@@ -3,10 +3,10 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Resources;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using CommandLine;
-using CommandLine.Text;
 using CsQuery;
 using CsQuery.ExtensionMethods.Internal;
 using Microsoft.SqlServer.Server;
@@ -15,7 +15,8 @@ namespace MVCMPProject1
 {
     class Program
     {
-        private static Uri UserInputUrl;
+        private static Uri _userInputUrl;
+        private static ResourceManager _rm;
         static void Main(string[] args)
         {
             Task t = MainAsync(args);
@@ -24,6 +25,7 @@ namespace MVCMPProject1
 
         private static async Task MainAsync(string[] args)
         {
+            _rm = ResourceManager.CreateFileBasedResourceManager("Resource.en.resx", "Resource.en.resx", null);
             var options = new Options();
             if (Parser.Default.ParseArguments(args, options))
             {
@@ -32,12 +34,12 @@ namespace MVCMPProject1
                 try
                 {
                     inputUrl = new Uri(url);
-                    UserInputUrl = inputUrl;
+                    _userInputUrl = inputUrl;
                 }
                 catch (Exception)
                 {
                     Console.WriteLine(
-                        "Entered url is invalid, please provide a valid absolute url");
+                        _rm.GetString("InvalidUrlMessage"));
                     return;
                 }
 
@@ -45,12 +47,12 @@ namespace MVCMPProject1
                 if (!Directory.Exists(outputFolder))
                 {
                     Console.WriteLine(
-                        "Entered output path does not exist or incorrect, please provide a valid path");
+                        _rm.GetString("InvalidPathMessage"));
                 }
                 else 
                 {
                     await GetContent(inputUrl, outputFolder, options.Recursive, options.Depth, options.Verbose, options.Domain);
-                    Console.WriteLine("Done");
+                    Console.WriteLine(_rm.GetString("DoneDownloading"));
                 }
             }
         }
@@ -63,16 +65,15 @@ namespace MVCMPProject1
             {
                 return;
             }
-            CQ dom;
             using (var client = new HttpClient())
             {                
                 HttpResponseMessage response = await client.GetAsync(inputUrl.OriginalString);
                 if (isVerbose)
-                    Console.WriteLine("Downloading " + inputUrl.OriginalString + "..." + "\n");
+                    Console.Write(_rm.GetString("DownloadingMessage") + inputUrl.OriginalString + "..." + "\n");
                 if (response.StatusCode == HttpStatusCode.OK)
                 {
                     string filepath;
-                    if (inputUrl.Equals(UserInputUrl))
+                    if (inputUrl.Equals(_userInputUrl))
                     {
                         var fileName = "index.html";
                         filepath = Path.Combine(outputFolder, fileName);
@@ -82,7 +83,7 @@ namespace MVCMPProject1
                         Debugger.Launch();
                         filepath = Path.Combine(outputFolder, recursivePageName);
                     }
-                    dom = response.Content.ReadAsStringAsync().Result;
+                    CQ dom = response.Content.ReadAsStringAsync().Result;
                     dom = await GetResources(inputUrl, dom, "img", "src", isVerbose, allowDifferentDomain, outputFolder);
                     dom = await GetResources(inputUrl, dom, "link[href]", "href", isVerbose, allowDifferentDomain, outputFolder);
                     dom = await GetResources(inputUrl, dom, "script[src]", "src", isVerbose, allowDifferentDomain, outputFolder);
@@ -95,16 +96,16 @@ namespace MVCMPProject1
                             Uri url = new Uri(link.Attributes.GetAttribute("href"), UriKind.RelativeOrAbsolute);
                             if (!url.IsAbsoluteUri)
                             {
-                                url = new Uri(inputUrl.OriginalString + "/" + url.OriginalString);
+                                url = new Uri(inputUrl, url.OriginalString);
                             }
                             if (IsSameDomain(inputUrl, url) || allowDifferentDomain)
                             {
-                                string 
+                                var 
                                     pageName = Path.GetFileName(url.AbsolutePath);
                                 if (pageName.IsNullOrEmpty())
                                     continue;
                                 Debugger.Launch();
-                                string outputFolderNew = outputFolder +
+                                var outputFolderNew = outputFolder +
                                                          inputUrl.AbsolutePath.Replace("/" + pageName, "");
                                 pageName = pageName.Replace(".html", "").Replace(".htm", "");
                                 pageName = pageName + ".html";
@@ -116,9 +117,8 @@ namespace MVCMPProject1
                         }
                     }
                     var fileContent = dom.Render();
-                    //Debugger.Launch();
                     File.WriteAllText(filepath, string.Empty);
-                    bool isDir = (File.GetAttributes(filepath) & FileAttributes.Directory) == FileAttributes.Directory;
+                    var isDir = (File.GetAttributes(filepath) & FileAttributes.Directory) == FileAttributes.Directory;
                     if (isDir)
                         filepath = Path.Combine(filepath, "index.html");
                     File.WriteAllText(filepath, fileContent);
@@ -136,8 +136,7 @@ namespace MVCMPProject1
                 foreach (var element in dom[resource])
                 {
                     
-                    Uri imgUrl = new Uri(element.Attributes.GetAttribute(src), UriKind.RelativeOrAbsolute);
-                    //Debugger.Launch();
+                    var imgUrl = new Uri(element.Attributes.GetAttribute(src), UriKind.RelativeOrAbsolute);
                     if (!IsAbsoluteUri(imgUrl))
                     {
                         imgUrl = new Uri(inputUrl.OriginalString + "/" + imgUrl.OriginalString);
@@ -145,11 +144,11 @@ namespace MVCMPProject1
                     if (IsSameDomain(imgUrl, inputUrl) || allowDifferentDomain)
                     {
                         if (isVerbose)
-                            Console.WriteLine("Downloading " + imgUrl + "..." + "\n");
+                            Console.Write(_rm.GetString("DownloadingMessage") + imgUrl + "..." + "\n");
                         imgUrl = new Uri(imgUrl.ToString().TrimStart('/'), UriKind.RelativeOrAbsolute);
                         if (!imgUrl.IsAbsoluteUri)
                             imgUrl = new Uri("http://" + imgUrl);
-                        HttpResponseMessage imgResponse = await client.GetAsync(imgUrl.OriginalString);
+                        var imgResponse = await client.GetAsync(imgUrl.OriginalString);
                         if (imgResponse.StatusCode == HttpStatusCode.OK)
                         {
                             var imgFileName = Uri.UnescapeDataString(imgUrl.LocalPath)
@@ -166,12 +165,9 @@ namespace MVCMPProject1
                                 Directory.CreateDirectory(
                                     imgFilePath.Substring(0, imgFilePath.Length - imgNameLength)
                                         .TrimEnd('\\'));
-                            using (FileStream fs = File.Create(imgFilePath))
+                            using (var fs = File.Create(imgFilePath))
                             {
-                                foreach (byte t in imgByteFile)
-                                {
-                                    fs.WriteByte(t);
-                                }
+                                await fs.WriteAsync(imgByteFile, 0, imgByteFile.Length);
                             }
                             element.Attributes.SetAttribute(src, imgFileName.Replace('\\', '/'));
                         }
@@ -203,52 +199,5 @@ namespace MVCMPProject1
             return r.IsMatch(url.OriginalString);
         }
 
-    }
-
-    
-
-    class Options
-    {
-        [Option('u', "url", Required = true,
-            HelpText = "Url link to download")]
-        public string Url { get; set; }
-
-        [Option('o', "output", Required = true,
-            HelpText = "Output Folder")]
-        public string OutputFolder { get; set; }
-
-        [Option('r', "recursive", Required = false,
-            HelpText = "Recursive download")]
-        public bool Recursive { get; set; }
-
-        [Option('l', "depth", Required = false, DefaultValue = 2,
-            HelpText="Depth of recursive download, default value 2")]
-        public int Depth { get; set; }
-
-        [Option('v', "verbose", Required = false,
-            HelpText = "Prints all messages to standard output.")]
-        public bool Verbose { get; set; }
-
-        [Option('k', "convertLink", Required = false,
-            HelpText="Convert links for local viewing ")]
-        public bool Convertlink { get; set; }
-
-        [Option('p', "page", Required = false,
-            HelpText="Download external images, css, and js")]
-        public bool Page { get; set; }
-
-        [Option('d', "domain", Required = false, DefaultValue = false,
-            HelpText = "allow downloading of content from different domains, by default not allowed")]
-        public bool Domain { get; set; }
-
-        [ParserState]
-        public IParserState LastParserState { get; set; }
-
-        [HelpOption]
-        public string GetUsage()
-        {
-            return HelpText.AutoBuild(this,
-              (HelpText current) => HelpText.DefaultParsingErrorsHandler(this, current));
-        }
     }
 }
